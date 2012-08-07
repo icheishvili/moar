@@ -56,7 +56,8 @@ class Controller(object):
             return {}
         if self.request['CONTENT_TYPE'] != 'application/x-www-form-urlencoded':
             return {}
-        return parse_params(self.request['wsgi.input'].read())
+        content_length = int(self.request.get('CONTENT_LENGTH', 0))
+        return parse_params(self.request['wsgi.input'].read(content_length))
 
     def get_params(self):
         """
