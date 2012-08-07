@@ -7,36 +7,36 @@ import httplib
 import traceback
 
 
-def route(request):
+def route(config, request):
     """
     Given the config (which has routes defined in it) and the request
     dictionary from WSGI, figure out where to send the given request.
     """
     path = request['PATH_INFO']
     method = request['REQUEST_METHOD']
-    for c_route in request['config']['routes']:
+    for c_route in config['routes']:
         methods = c_route.get('methods', [method])
         if re.search(c_route['regex'], path) and method in methods:
             return c_route['class'], c_route['method']
     return 'NotFoundController', 'index'
 
 
-def invoke(request, klass, method, *args):
+def invoke(config, request, klass, method, *args):
     """
     Used to call controllers that the user provides.
     """
     module = __import__(
-        '%s.controllers.%s' % (request['config']['module'], klass),
+        '%s.controllers.%s' % (config['module'], klass),
         globals(), locals(), [klass])
-    if request['config'].get('dev'):
+    if config.get('dev'):
         reload(module)
-    controller = getattr(module, klass)(request)
+    controller = getattr(module, klass)(config, request)
     body = getattr(controller, method)(*args)
     code, headers = controller.get_response_start()
     return code, headers, body
 
 
-def dispatch(request, klass, method):
+def dispatch(config, request, klass, method):
     """
     Given a class and a method, import the class from the controllers
     namespace and try to run the given method. If that fails, handle
@@ -44,18 +44,18 @@ def dispatch(request, klass, method):
     """
     try:
         try:
-            code, headers, body = invoke(request, klass, method)
+            code, headers, body = invoke(config, request, klass, method)
         except Exception, ex1:
             ex1_traceback = traceback.format_exc()
             code, headers, body = invoke(
-                request, 'ErrorController', 'index', ex1)
+                config, request, 'ErrorController', 'index', ex1)
     except Exception, ex2:
         code = 500
         headers = [('Content-Type', 'text/html')]
         body = '''
         <h1>%s</h1>\n<pre>%s</pre>
         Also, you do not have an ErrorController: %s
-        ''' % (ex1, ex1_traceback, ex2)
+        ''' % (repr(ex1), ex1_traceback, repr(ex2))
 
     full_code = '%s %s' % (code, httplib.responses.get(code, 'Unknown'))
     return full_code, headers, body
@@ -65,8 +65,7 @@ def moar(config, request, start_response):
     """
     Convenience for running the moar framework.
     """
-    request['config'] = config
-    klass, method = route(request)
-    code, headers, body = dispatch(request, klass, method)
+    klass, method = route(config, request)
+    code, headers, body = dispatch(config, request, klass, method)
     start_response(code, headers)
     return body

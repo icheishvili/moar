@@ -26,10 +26,11 @@ class Controller(object):
     method can be used in place of this one.
     """
 
-    def __init__(self, request):
+    def __init__(self, config, request):
         """
         Set up basics and defaults, like status codes and headers.
         """
+        self.config = config
         self.request = request
         self.code = 200
         self.headers = []
