@@ -1,0 +1,9 @@
+module: docapp
+routes:
+  - regex: "^/?$"
+    class: IndexController
+    method: index
+    methods: ['GET']
+  - regex: "^/blog/?$"
+    class: IndexController
+    method: blog
