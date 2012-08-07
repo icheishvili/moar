@@ -28,6 +28,8 @@ def invoke(request, klass, method, *args):
     module = __import__(
         '%s.controllers.%s' % (request['config']['module'], klass),
         globals(), locals(), [klass])
+    if request['config'].get('dev'):
+        reload(module)
     controller = getattr(module, klass)(request)
     body = getattr(controller, method)(*args)
     code, headers = controller.get_response_start()
