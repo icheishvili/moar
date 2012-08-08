@@ -33,6 +33,9 @@ def invoke(config, request, klass, method, *args):
     controller = getattr(module, klass)(config, request)
     body = getattr(controller, method)(*args)
     code, headers = controller.get_response_start()
+    if not body:
+        body = ''
+        headers.append(('Content-Length', 0))
     return code, headers, body
 
 

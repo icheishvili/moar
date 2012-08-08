@@ -35,7 +35,7 @@ class Controller(object):
         self.code = 200
         self.headers = []
         self.view = {}
-        self.cookie = None
+        self.cookie = SimpleCookie()
         self.user = None
         self.parse_cookie()
 
