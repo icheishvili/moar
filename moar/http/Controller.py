@@ -109,4 +109,4 @@ class Controller(object):
         the object's view member variable as a data provider. Can pass
         an optional file extension.
         """
-        return str(self.render_raw(self.view, method, ext))
+        return self.render_raw(self.view, method, ext)
