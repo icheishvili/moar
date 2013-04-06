@@ -1,37 +1,33 @@
 """
-Tools for interacting with MySQL databases.
+MySQL connection object for Python that makes it easy to write fault-tolerant
+data access and introspect queries.
 """
 
-import logging
+import _mysql_exceptions
 import MySQLdb
 import MySQLdb.cursors
-import _mysql_exceptions
-
 
 class Connection(object):
     """
-    A MySQL database connection class. Useful for interacting with a
-    MySQL database. Provides no hand-holding (assumes you know SQL).
+    Simple MySQL connection object that does everything needed without
+    introducing extra bloat.
     """
 
     def __init__(self, config):
         """
-        Save the config and initialize a few member variables.
+        Save the config and connect.
         """
         self.config = config
+        self.mysql = None
         self.last_query = None
-        self.connection = None
+        self.connect()
 
     def prepare(self, query, args):
         """
-        Escape arguments, replace them in the query string. Also
-        pre-process arguments to properly handle None/True/False values.
-        This function sets the last_query property on the object,
-        which is useful when debugging.
+        Prepare the query for execution query by converting booleans to
+        integers, Nones to NULLs, and escaping all parameters.
         """
-        self.connect()
         bind_args = []
-
         for arg in args:
             if arg is None:
                 bind_args.append('NULL')
@@ -40,75 +36,70 @@ class Connection(object):
             elif arg is True:
                 bind_args.append('1')
             else:
-                bind_args.append(self.connection.escape(
-                    arg, self.connection.encoders))
-
-        self.last_query = query % tuple(bind_args)
-        logging.getLogger('moar').debug(self.last_query)
-
-        return self.last_query
+                bind_args.append(self.mysql.escape(arg, self.mysql.encoders))
+        run_query = query % tuple(bind_args)
+        self.last_query = run_query
+        return run_query
 
     def connect(self):
         """
-        Connect to MySQL only if a connection does not already exist.
+        Connect to the MySQL database.
         """
-        if not self.connection:
-            self.connection = MySQLdb.connect(
-                host=self.config['host'],
-                port=self.config['port'],
-                user=self.config['username'],
-                passwd=self.config['password'],
-                db=self.config['schema'],
-                cursorclass=MySQLdb.cursors.SSDictCursor)
-        return self.connection
+        self.mysql = MySQLdb.connect(
+            host=self.config['host'],
+            port=self.config['port'],
+            user=self.config['username'],
+            passwd=self.config['password'],
+            db=self.config['database'],
+            cursorclass=MySQLdb.cursors.SSDictCursor,
+            use_unicode=True,
+            charset='utf8')
+        self.execute('''
+            SET NAMES utf8mb4;
+            SET CHARACTER SET utf8mb4;
+        ''')
 
-    def query(self, query, *args):
+    def query(self, query, *args, **kwargs):
         """
-        Run a query with the given arguments. Uses a generator to stream
-        results back (keeps memory usage low).
+        Query MySQL, stream rows back one by one. Handles re-connects.
         """
         run_query = self.prepare(query, args)
-        cursor = self.connection.cursor()
-        cursor.execute(run_query)
-        row = cursor.fetchone()
-        while row:
-            yield row
+        retries = kwargs.get('retries', 1)
+
+        try:
+            cursor = self.mysql.cursor()
+            cursor.execute(run_query)
             row = cursor.fetchone()
-        cursor.close()
+            while row:
+                yield row
+                row = cursor.fetchone()
+            cursor.close()
+        except _mysql_exceptions.OperationalError, ex:
+            code, _message = ex
+            if code in (2006, 2013) and retries:
+                self.close()
+                self.connect()
+                for row in self.query(query, *args, retries=retries - 1):
+                    yield row
+            else:
+                raise
 
     def execute(self, query, *args):
         """
-        Execute a query. Do the right thing--if there is a resultset,
-        return it.  If there is something else (like number of rows
-        changed), return that instead.
+        Buffered version of query().
         """
-        run_query = self.prepare(query, args)
-        try:
-            cursor = self.connection.cursor()
-            cursor.execute(run_query)
-            result = cursor.fetchall()
-            cursor.close()
-            return result
-        except _mysql_exceptions.OperationalError, ex:
-            code, _message = ex
-            if code == 2006:
-                logging.getLogger('moar').info(
-                    'Connection lost, reconnecting...')
-                cursor.close()
-                self.close()
-                self.connect()
-                return self.execute(query, *args)
+        return list(self.query(query, *args))
 
     def close(self):
         """
-        Close the connection. Can be re-opened later.
+        Close the MySQL connection.
         """
-        if self.connection is not None:
-            self.connection.close()
-            self.connection = None
+        if self.mysql is not None:
+            self.mysql.close()
+            self.mysql = None
 
     def __del__(self):
         """
-        Close the connection.
+        Alias for close().
         """
         self.close()
